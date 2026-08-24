@@ -2,7 +2,8 @@
 
 A hands-on Kafka learning lab: a small **Order Processing** event pipeline on Aiven Kafka,
 built to *feel* every core concept — producer, consumer, topic, partition, consumer group,
-offset, key/ordering, at-least-once, retries, dead-letter, idempotency, and rebalancing.
+offset, key/ordering, at-least-once, retries, dead-letter, idempotency, rebalancing,
+and **stream processing** (KStream → KTable, materialized views, interactive queries).
 
 ## Flow
 
@@ -21,13 +22,20 @@ flowchart LR
   Topic --> Pay[payment group]
   Topic --> Inv[inventory group]
   Topic --> Notif[notification group]
+  Topic --> Stream["OrderAnalytics\n(stream processor)"]
 
   Pay -->|"retries exhausted"| DLQ[orders.dlq]
   Inv -->|"retries exhausted"| DLQ
   Notif -->|"retries exhausted"| DLQ
+
+  Stream -->|"fold / aggregate"| View["materialized view\n(in-memory table)"]
+  View -->|"GET /analytics/revenue"| API
+  View -->|"GET /analytics/revenue/{user_id}"| API
 ```
 
-Each group reads the same topic independently (one order is charged, reserved, *and* emailed). Offsets are per group. After `max_retries` failures, that group publishes the original record to `orders.dlq` and commits so the poison message does not block the partition.
+**Consumers:** each group reads the same topic independently (one order is charged, reserved, *and* emailed). Offsets are per group. After `max_retries` failures, that group publishes the original record to `orders.dlq` and commits so the poison message does not block the partition.
+
+**Streams:** `OrderAnalytics` is a background consumer that **never commits**. It uses a fresh group id on every API start so it replays `orders.created` from the beginning, folds every event into running totals (orders, revenue, per-user), and serves that table through GET endpoints — the stream/table duality in miniature.
 
 ## Layout
 
@@ -39,9 +47,10 @@ Each group reads the same topic independently (one order is charged, reserved, *
 | `app/kafka/producer.py` | `OrderProducer` — the only writer to Kafka |
 | `app/kafka/consumer.py` | `run_consumer()` — reusable poll/commit/retry/DLQ loop |
 | `app/services/*.py`     | payment / inventory / notification — one consumer group each |
-| `app/api.py`      | FastAPI edge: `POST /orders` → publish event |
+| `app/stream/analytics.py` | stream processor: fold the log into an in-memory table |
+| `app/api.py`      | FastAPI: `POST /orders` plus interactive queries on the table |
 
-**Read it as:** shared contracts (`config`, `schemas`) → plumbing (`kafka/`) → your logic (`services/`) → the door in (`api`).
+**Read it as:** shared contracts (`config`, `schemas`) → plumbing (`kafka/`) → side effects (`services/`) → derived state (`stream/`) → the door in (`api`).
 
 ## Setup
 
@@ -55,7 +64,7 @@ uv sync
 
 ```bash
 uv run python -m app.kafka.admin              # 1. create topics (once)
-uv run uvicorn app.api:app --reload           # 2. API on :8000
+uv run uvicorn app.api:app --reload           # 2. API on :8000 (also starts the stream processor)
 uv run python -m app.services.payment         # 3. payment consumer (run 2 to see rebalancing)
 uv run python -m app.services.inventory       # 4. inventory consumer
 uv run python -m app.services.notification    # 5. notification consumer
@@ -67,3 +76,12 @@ Send an order:
 curl -X POST localhost:8000/orders -H 'content-type: application/json' \
   -d '{"order_id":"ORD-1001","user_id":"U-123","items":["book"],"amount":42.0}'
 ```
+
+Query the materialized view (give the stream a second to catch up after a fresh API start):
+
+```bash
+curl localhost:8000/analytics/revenue
+curl localhost:8000/analytics/revenue/U-123
+```
+
+`GET /analytics/revenue` is the whole table. `GET /analytics/revenue/{user_id}` is a point lookup by key — like reading one row from a KTable.
