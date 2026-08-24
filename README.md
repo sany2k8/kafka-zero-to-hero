@@ -1,3 +1,4 @@
+
 # kafka-zero-to-hero
 
 A hands-on Kafka learning lab: a small **Order Processing** system on Aiven Kafka, built to
@@ -172,3 +173,4 @@ curl -X POST "localhost:8000/es/orders/ORD-1/ship?tracking=Z9-88"
 curl localhost:8000/es/orders/ORD-1            # current state, folded from events
 curl localhost:8000/es/orders/ORD-1/history    # the audit trail
 ```
+<img width="1920" height="1212" alt="kafka-zero-to-hero-api" src="https://github.com/user-attachments/assets/2e1e7d78-b0bf-4270-9d04-37993354b05f" />
