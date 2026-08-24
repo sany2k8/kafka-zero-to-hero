@@ -6,14 +6,28 @@ offset, key/ordering, at-least-once, retries, dead-letter, idempotency, and reba
 
 ## Flow
 
+```mermaid
+flowchart LR
+  Client -->|"POST /orders"| API[FastAPI]
+  API --> Producer
+  Producer --> Topic
+
+  subgraph Topic["orders.created"]
+    direction TB
+    p0[partition 0]
+    p1[partition 1]
+  end
+
+  Topic --> Pay[payment group]
+  Topic --> Inv[inventory group]
+  Topic --> Notif[notification group]
+
+  Pay -->|"retries exhausted"| DLQ[orders.dlq]
+  Inv -->|"retries exhausted"| DLQ
+  Notif -->|"retries exhausted"| DLQ
 ```
-POST /orders ─▶ producer ─▶ [orders.created p0 | p1] ─┬─▶ payment group
-                                                       ├─▶ inventory group
-                                                       └─▶ notification group
-                                                              │ (after N failed retries)
-                                                              ▼
-                                                        [orders.dlq]
-```
+
+Each group reads the same topic independently (one order is charged, reserved, *and* emailed). Offsets are per group. After `max_retries` failures, that group publishes the original record to `orders.dlq` and commits so the poison message does not block the partition.
 
 ## Layout
 
