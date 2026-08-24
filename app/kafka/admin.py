@@ -2,7 +2,7 @@
 #   uv run python -m app.kafka.admin
 from confluent_kafka.admin import AdminClient, NewTopic
 
-from app.config import kafka_config, TOPIC_ORDERS, TOPIC_DLQ
+from app.config import kafka_config, TOPIC_ORDERS, TOPIC_DLQ, TOPIC_EVENTS
 
 
 def create_topics():
@@ -10,6 +10,7 @@ def create_topics():
     topics = [
         NewTopic(TOPIC_ORDERS, num_partitions=2, replication_factor=2),  # 2 brokers in this cluster
         NewTopic(TOPIC_DLQ,    num_partitions=2, replication_factor=2),
+        NewTopic(TOPIC_EVENTS, num_partitions=2, replication_factor=2),  # event-sourcing store
     ]
     for name, fut in admin.create_topics(topics).items():
         try:

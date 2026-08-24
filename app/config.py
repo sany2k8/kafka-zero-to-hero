@@ -29,3 +29,4 @@ def kafka_config() -> dict:
 # Topic names live here so producer, consumer, and admin never disagree.
 TOPIC_ORDERS = "orders.created"
 TOPIC_DLQ = "orders.dlq"
+TOPIC_EVENTS = "orders.events"   # event-sourcing store: the append-only order lifecycle log
