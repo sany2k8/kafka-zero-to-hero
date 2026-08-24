@@ -1,7 +1,7 @@
 
 # kafka-zero-to-hero
 
-A hands-on Kafka learning lab: a small **Order Processing** system on Aiven Kafka, built to
+A hands-on Kafka learning lab: a small **Order Processing** system on [Aiven Kafka](https://aiven.io/), built to
 *feel* every core concept — producer, consumer, topic, partition, consumer group, offset,
 key/ordering, at-least-once, retries, dead-letter, idempotency, and rebalancing — and then three
 higher-level patterns layered on the same topics: **event-driven fan-out**, **stream processing**,
