@@ -3,11 +3,11 @@
 
 A hands-on Kafka learning lab: a small **Order Processing** system on [Aiven Kafka](https://aiven.io/), built to
 *feel* every core concept — producer, consumer, topic, partition, consumer group, offset,
-key/ordering, at-least-once, retries, dead-letter, idempotency, and rebalancing — and then three
+key/ordering, at-least-once, retries, dead-letter, idempotency, and rebalancing — and then four
 higher-level patterns layered on the same topics: **event-driven fan-out**, **stream processing**,
-and **event sourcing**.
+**windowed analytics**, and **event sourcing**.
 
-All three share one idea: the log is the source of truth, and everything else is derived from it.
+They all share one idea: the log is the source of truth, and everything else is derived from it.
 Here is each pattern on its own so the flow stays clear.
 
 ## Pattern 1 — Event-driven fan-out
@@ -58,7 +58,27 @@ It uses a fresh group id on every start, so it replays the whole topic from the 
 commits — because a **table is the entire stream folded up**, not just new messages. Restart the API
 and the totals rebuild themselves from the log. That is the stream/table duality in miniature.
 
-## Pattern 3 — Event sourcing
+## Pattern 3 — Windowed analytics
+
+The all-time table above answers "how much ever?". A **window** slices the stream into fixed time
+buckets to answer "how much *per minute*?" — and per-user counts per window give a velocity/fraud
+alert for free.
+
+```mermaid
+flowchart LR
+  T[(orders.created)] -->|"bucket by created_at<br/>(event-time)"| WP["WindowedAnalytics<br/>tumbling windows"]
+  WP --> W["per-window table<br/>orders · revenue · per-user counts"]
+  W -->|"GET /windows/orders"| C1[client]
+  W -->|"count &ge; threshold&nbsp;→ alert"| A["GET /windows/alerts"]
+```
+
+Each order is bucketed by its own `created_at` (**event-time**), not when it's consumed — so a late
+or out-of-order event still lands in its correct window, and replaying the log reproduces the exact
+same windows. A user crossing the per-window threshold (default 3 orders/minute) shows up in
+`/windows/alerts`. (Real Kafka Streams *closes* a window after a grace period and drops later
+stragglers; this lab keeps every bucket, trading bounded state for never losing a late event.)
+
+## Pattern 4 — Event sourcing
 
 The order's state is never stored — only the immutable events that happened to it. Commands append
 events to `orders.events`; current state and history are **derived** by replaying that log per order.
@@ -96,6 +116,7 @@ any order rebuilds from offset 0 — the log is the database, memory is just a c
 | `app/kafka/consumer.py` | `run_consumer()` — reusable poll/commit/retry/DLQ loop |
 | `app/services/*.py`     | payment / inventory / notification — one consumer group each |
 | `app/stream/analytics.py`     | stream processor: fold the log into an in-memory table |
+| `app/windows/processor.py`    | tumbling-window aggregates bucketed by event-time |
 | `app/eventsourcing/events.py` | event types + `rebuild()` reducer (state = fold of events) |
 | `app/eventsourcing/store.py`  | append-only event store + projection (read model) |
 
@@ -105,15 +126,18 @@ any order rebuilds from offset 0 — the log is the database, memory is just a c
 |---|---|---|---|
 | Event-driven  | `app/eventdriven/api.py`   | `POST /orders`      | `uvicorn app.eventdriven.api:app` |
 | Streams       | `app/stream/api.py`        | `GET /analytics/*`  | `uvicorn app.stream.api:app` |
+| Windows       | `app/windows/api.py`       | `GET /windows/*`    | `uvicorn app.windows.api:app` |
 | Event sourcing| `app/eventsourcing/api.py` | `/es/*`             | `uvicorn app.eventsourcing.api:app` |
-| **All three** | `app/api.py`               | everything above    | `uvicorn app.api:app` |
+| **All four**  | `app/api.py`               | everything above    | `uvicorn app.api:app` |
 
 Every feature module exposes `router`, `start()`, `stop()`, and its own `app`; `app/api.py` is just a
-composition root that mounts the three routers and starts/stops each. Running a feature's app boots
-**only** that feature's background work (e.g. `app.stream.api` starts just the analytics processor).
+composition root that mounts the four routers and starts/stops each. Running a feature's app boots
+**only** that feature's background work (e.g. `app.windows.api` starts just the windowed processor).
+Note the windows feature only *reads* `orders.created`, so produce with `POST /orders` (or run the
+combined app) to feed it.
 
 **Read it as:** shared contracts (`config`, `schemas`) → plumbing (`kafka/`) → self-contained features
-(`eventdriven/`, `services/`, `stream/`, `eventsourcing/`, each with its own `api.py`) → composition root (`app/api.py`).
+(`eventdriven/`, `services/`, `stream/`, `windows/`, `eventsourcing/`, each with its own `api.py`) → composition root (`app/api.py`).
 
 ## Setup
 
@@ -143,6 +167,7 @@ uv run python -m app.services.notification    # notification consumer
 ```bash
 uv run uvicorn app.eventdriven.api:app --reload      # only POST /orders
 uv run uvicorn app.stream.api:app --reload           # only GET /analytics/*
+uv run uvicorn app.windows.api:app --reload          # only GET /windows/*
 uv run uvicorn app.eventsourcing.api:app --reload    # only /es/*
 ```
 
@@ -162,7 +187,18 @@ curl localhost:8000/analytics/revenue
 curl localhost:8000/analytics/revenue/U-123
 ```
 
-**3. Event sourcing** — drive one order through its lifecycle, then read derived state + history:
+**3. Windows** — send a burst for one user within a minute, then read the per-window table + alerts:
+
+```bash
+for i in 1 2 3 4; do
+  curl -s -X POST localhost:8000/orders -H 'content-type: application/json' \
+    -d "{\"order_id\":\"ORD-$i\",\"user_id\":\"U-123\",\"items\":[\"book\"],\"amount\":10.0}" >/dev/null
+done
+curl localhost:8000/windows/orders     # order count + revenue per 60s window
+curl localhost:8000/windows/alerts      # users at/over 3 orders in one window
+```
+
+**4. Event sourcing** — drive one order through its lifecycle, then read derived state + history:
 
 ```bash
 curl -X POST localhost:8000/es/orders -H 'content-type: application/json' \
