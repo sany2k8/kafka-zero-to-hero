@@ -1,0 +1,44 @@
+# .dockerignore — keep the build context lean and avoid leaking secrets
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Git
+.git
+.gitignore
+
+# Python byte-code & caches
+__pycache__/
+*.py[oc]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environment (Docker uses the venv built inside the image)
+.venv/
+
+# Build artefacts
+build/
+dist/
+wheels/
+*.egg-info/
+
+# Secrets — never send these to the daemon
+.env
+# ca.pem is intentionally NOT ignored here; the Dockerfile COPYs it as a
+# fallback for standalone `docker run`. In docker-compose it is bind-mounted
+# from the host instead, so the baked-in copy is overridden at runtime.
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Docs (not needed in the image)
+docs/
+README.md
+
+# Docker files themselves (no need to copy into the image)
+Dockerfile
+docker-compose.yml
+.dockerignore

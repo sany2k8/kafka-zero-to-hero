@@ -1,0 +1,37 @@
+# docker-compose.yml
+# ──────────────────────────────────────────────────────────────────────────────
+# Runs the FastAPI/uvicorn service that talks to an external Aiven Kafka cluster.
+# No local Kafka broker is started here – credentials live in .env (see .env.example).
+# ──────────────────────────────────────────────────────────────────────────────
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kafka-zero-to-hero:latest
+    container_name: kafka_api
+
+    # Load Aiven credentials from .env (git-ignored, see .env.example for the template)
+    env_file: .env
+
+    # Override KAFKA_CA so the app finds the cert at the mounted path
+    environment:
+      KAFKA_CA: /run/secrets/ca.pem
+
+    ports:
+      - "8000:8000"
+
+    # Mount the CA cert read-only so it is never baked into the image layer
+    # (the COPY in the Dockerfile is only a fallback for standalone `docker run`)
+    volumes:
+      - ./ca.pem:/run/secrets/ca.pem:ro
+
+    # Restart on failure; remove this line if you prefer manual restarts
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
