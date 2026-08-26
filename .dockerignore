@@ -23,9 +23,7 @@ wheels/
 
 # Secrets — never send these to the daemon
 .env
-# ca.pem is intentionally NOT ignored here; the Dockerfile COPYs it as a
-# fallback for standalone `docker run`. In docker-compose it is bind-mounted
-# from the host instead, so the baked-in copy is overridden at runtime.
+ca.pem
 
 # Editor / OS noise
 .DS_Store

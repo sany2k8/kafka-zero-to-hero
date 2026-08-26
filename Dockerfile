@@ -31,10 +31,6 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application source
 COPY app/ ./app/
 
-# ca.pem is mounted at runtime via docker-compose (see compose file),
-# but copy it here as a fallback for standalone docker run usage.
-COPY ca.pem ./ca.pem
-
 # Put venv binaries first in PATH so uvicorn / python resolve from there
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
